@@ -1,0 +1,28 @@
+appId: ai.d2smurf
+productName: d2smurf
+copyright: Copyright © 2026 ${author}
+directories:
+  output: release
+  buildResources: build
+files:
+  - "!**/.vscode/*"
+  - "!src/*"
+  - "!electron/*"
+  - "!electron.vite.config.{js,ts,mjs,cjs}"
+  - "!{.eslintrc.cjs,.prettierrc.json,.prettierignore,.gitignore,.eslintignore,electron-builder.yml}"
+  - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,tailwind.config.ts,postcss.config.js}"
+  - "!{README.md,LICENSE,SECURITY.md,.editorconfig}"
+asarUnpack:
+  - "**/*.node"
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${name}-${version}-setup.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+publish: null
