@@ -94,7 +94,7 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
 
   return (
     <Dialog open={accountId !== null} onOpenChange={(o) => !o && void close()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Привязка SDA (Steam Guard Mobile)</DialogTitle>
           <DialogDescription>
