@@ -134,6 +134,7 @@ export type IpcChannel =
   | "accounts:reorder"
   | "accounts:bulk-check"
   | "accounts:check-one"
+  | "accounts:deep-check"
   | "import:txt"
   | "import:mafile"
   | "import:mafile-folder"

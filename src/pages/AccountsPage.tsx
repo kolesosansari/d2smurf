@@ -30,6 +30,7 @@ export function AccountsPage(): React.JSX.Element {
     reorder,
     checkOne,
     checkAll,
+    deepCheck,
     remove,
     search,
     setSearch,
@@ -118,6 +119,15 @@ export function AccountsPage(): React.JSX.Element {
 
   const onLaunch = async (id: string) => {
     await api.launcher.startSteam(id);
+  };
+
+  const onDeepCheck = async (id: string) => {
+    const result = await deepCheck(id);
+    if (!result.ok) {
+      window.alert(`Deep check failed:\n${result.error ?? "unknown error"}\n\nSteps:\n${result.steps.join("\n")}`);
+    } else if (result.steps.length) {
+      console.info("Deep check steps:", result.steps);
+    }
   };
 
   const onLaunchOverplus = async (id: string) => {
@@ -244,6 +254,7 @@ export function AccountsPage(): React.JSX.Element {
                     account={account}
                     draggable={sortKey === "manual" && !search && !tagFilter}
                     onCheck={(id) => void checkOne(id)}
+                    onDeepCheck={(id) => void onDeepCheck(id)}
                     onLaunch={(id) => void onLaunch(id)}
                     onLaunchOverplus={(id) => void onLaunchOverplus(id)}
                     onDelete={(id) => void onDelete(id)}

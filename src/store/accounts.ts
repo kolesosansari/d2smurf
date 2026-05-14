@@ -16,6 +16,7 @@ interface AccountsState {
   reorder: (ids: string[]) => Promise<void>;
   checkOne: (id: string) => Promise<void>;
   checkAll: () => Promise<void>;
+  deepCheck: (id: string) => Promise<{ ok: boolean; error?: string; steps: string[] }>;
   setSearch: (s: string) => void;
   setTagFilter: (tag: string | null) => void;
   setSortKey: (sort: AccountsState["sortKey"]) => void;
@@ -73,6 +74,16 @@ export const useAccounts = create<AccountsState>((set, get) => ({
         accounts: s.accounts.map((a) => (a.id === id ? updated : a)),
       }));
     }
+  },
+  async deepCheck(id) {
+    const result = await api.accounts.deepCheck(id);
+    if (result.ok && result.account) {
+      const updated = result.account;
+      set((s) => ({
+        accounts: s.accounts.map((a) => (a.id === id ? updated : a)),
+      }));
+    }
+    return { ok: result.ok, error: result.error, steps: result.steps };
   },
   async checkAll() {
     await api.accounts.bulkCheck();
