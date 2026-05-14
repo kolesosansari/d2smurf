@@ -32,6 +32,10 @@ const api = {
     checkOne: (id: string): Promise<{ ok: boolean; account?: AccountRow; error?: string }> =>
       ipcRenderer.invoke("accounts:check-one", id),
     bulkCheck: (): Promise<{ ok: boolean }> => ipcRenderer.invoke("accounts:bulk-check"),
+    deepCheck: (
+      id: string,
+    ): Promise<{ ok: boolean; account?: AccountRow; error?: string; steps: string[] }> =>
+      ipcRenderer.invoke("accounts:deep-check", id),
   },
   import: {
     txt: (content: string, tags?: string[]): Promise<ImportResult> =>

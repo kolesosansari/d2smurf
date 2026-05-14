@@ -9,6 +9,7 @@ import {
   KeyRound,
   Play,
   RefreshCcw,
+  ShieldCheck,
   Trash2,
   Mail,
   StickyNote,
@@ -26,6 +27,7 @@ interface AccountCardProps {
   account: AccountRow;
   draggable?: boolean;
   onCheck?: (id: string) => void;
+  onDeepCheck?: (id: string) => void;
   onLaunch?: (id: string) => void;
   onLaunchOverplus?: (id: string) => void;
   onShowDetails?: (id: string) => void;
@@ -37,6 +39,7 @@ export function AccountCard({
   account,
   draggable = true,
   onCheck,
+  onDeepCheck,
   onLaunch,
   onLaunchOverplus,
   onShowDetails,
@@ -223,6 +226,17 @@ export function AccountCard({
             <RefreshCcw className="h-3 w-3" />
             Перечекать
           </Button>
+          {account.hasMaFile === 1 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onDeepCheck?.(account.id)}
+              title="Логин в Steam → STRATZ → public refresh"
+            >
+              <ShieldCheck className="h-3 w-3" />
+              Deep Check
+            </Button>
+          )}
           {account.hasMaFile === 1 && (
             <Button size="sm" variant="ghost" onClick={() => onShowMaCode?.(account.id)}>
               <KeyRound className="h-3 w-3" />

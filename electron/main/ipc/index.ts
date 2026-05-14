@@ -22,6 +22,7 @@ import {
 import { parseAccountsTxt } from "../importers/txt-importer";
 import { parseMaFile, parseMaFileContent, parseMaFolder } from "../importers/mafile-importer";
 import { refreshAccountPublic } from "../steam/checker";
+import { deepCheckAccount } from "../steam/deep-checker";
 import { generateSteamGuardCode, secondsLeftInWindow } from "../steam/totp";
 import * as autoCheck from "../scheduler/auto-check";
 import { launchSteamWithAccount, startWithOverplus } from "../launcher/steam-launcher";
@@ -76,6 +77,11 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("accounts:bulk-check", async () => {
     void autoCheck.runCheckAll();
     return { ok: true };
+  });
+  ipcMain.handle("accounts:deep-check", async (_e, id: string) => {
+    const account = getAccount(id);
+    if (!account) return { ok: false, error: "Not found", steps: [] };
+    return deepCheckAccount(account);
   });
 
   // ---- import ----
