@@ -184,9 +184,23 @@ export async function startSdaRegistration(accountId: string): Promise<StartSdaR
         ).enableTwoFactor();
 
         if (!body || !body.shared_secret || !body.identity_secret) {
-          // Steam returned a non-success status. Common causes: no phone
-          // verified, account too new, prior pending authenticator request.
-          const statusHint = body?.status ? ` (Steam status ${body.status})` : "";
+          // Steam refused AddAuthenticator. `status` is a Steam EResult value
+          // — 2 (k_EResultFail) is the most common "generic failure" we see.
+          // Surface the raw status to the user and a checklist of the real
+          // reasons Steam tends to reject the call.
+          const status = body?.status;
+          const lines: string[] = [
+            status
+              ? `Steam отверг запрос на привязку SDA (status ${status}).`
+              : "Steam отверг запрос на привязку SDA.",
+            "",
+            "Скорее всего одно из:",
+            "• Аккаунт ни разу не логинился через мобильное приложение Steam (Android/iOS). Залогинься в мобилку, выйди и попробуй снова.",
+            "• Телефон был привязан меньше 15 дней назад — Valve держит anti-fraud кулдаун.",
+            "• На аккаунте ноль покупок/трат на $5+ — Steam в части регионов требует минимальную активность.",
+            "• Недавно отключали 2FA — действует 14-дневный кулдаун.",
+            "• Менеджер логинится как обычный Steam-клиент, а Steam для AddAuthenticator иногда требует mobile-platform login. Над этим я уже работаю отдельно.",
+          ];
           if (settled) return;
           settled = true;
           try {
@@ -196,9 +210,7 @@ export async function startSdaRegistration(accountId: string): Promise<StartSdaR
           }
           resolve({
             ok: false,
-            phoneMissing: true,
-            error:
-              `Steam не выдал секреты${statusHint}. Самая частая причина — нет подтверждённого номера телефона. Привяжи телефон через Steam-приложение или https://store.steampowered.com/phone/add и попробуй снова.`,
+            error: lines.join("\n"),
           });
           return;
         }

@@ -193,7 +193,7 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
 
         {phase.name === "error" && (
           <div className="space-y-3 text-sm">
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-destructive">
+            <div className="whitespace-pre-line rounded-md border border-destructive/40 bg-destructive/10 p-3 text-destructive">
               <ShieldAlert className="mb-1 h-4 w-4" />
               {phase.message}
             </div>
