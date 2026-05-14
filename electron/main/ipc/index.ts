@@ -23,6 +23,11 @@ import { parseAccountsTxt } from "../importers/txt-importer";
 import { parseMaFile, parseMaFileContent, parseMaFolder } from "../importers/mafile-importer";
 import { refreshAccountPublic } from "../steam/checker";
 import { deepCheckAccount } from "../steam/deep-checker";
+import {
+  cancelSdaRegistration,
+  startSdaRegistration,
+  submitSdaActivationCode,
+} from "../steam/sda-register";
 import { generateSteamGuardCode, secondsLeftInWindow } from "../steam/totp";
 import * as autoCheck from "../scheduler/auto-check";
 import { launchSteamWithAccount, startWithOverplus } from "../launcher/steam-launcher";
@@ -252,14 +257,18 @@ export function registerIpcHandlers(): void {
     removeMaFile(id);
     return { ok: true };
   });
-  ipcMain.handle("sda:add-phone", async () => ({
-    ok: false,
-    error: "SDA phone binding is wired to the UI but the Steam side is not yet implemented — coming next.",
-  }));
-  ipcMain.handle("sda:enable-two-factor", async () => ({
-    ok: false,
-    error: "Enable-two-factor flow not yet implemented (needs steam-user login). Coming next.",
-  }));
+  ipcMain.handle("sda:enable-two-factor", async (_e, accountId: string) => {
+    return startSdaRegistration(accountId);
+  });
+  ipcMain.handle(
+    "sda:finalize-two-factor",
+    async (_e, sessionId: string, activationCode: string) => {
+      return submitSdaActivationCode(sessionId, activationCode);
+    },
+  );
+  ipcMain.handle("sda:cancel-registration", async (_e, sessionId: string) => {
+    return cancelSdaRegistration(sessionId);
+  });
 
   // ---- backup ----
   ipcMain.handle("backup:export", async () => {

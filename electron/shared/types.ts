@@ -146,8 +146,10 @@ export type IpcChannel =
   | "sda:confirm-phone"
   | "sda:enable-two-factor"
   | "sda:finalize-two-factor"
+  | "sda:cancel-registration"
   | "sda:generate-code"
   | "sda:export-mafile"
+  | "sda:remove"
   | "backup:export"
   | "backup:import";
 

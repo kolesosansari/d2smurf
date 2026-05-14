@@ -10,6 +10,7 @@ import {
   Play,
   RefreshCcw,
   ShieldCheck,
+  ShieldPlus,
   Trash2,
   Mail,
   StickyNote,
@@ -33,6 +34,7 @@ interface AccountCardProps {
   onShowDetails?: (id: string) => void;
   onDelete?: (id: string) => void;
   onShowMaCode?: (id: string) => void;
+  onRegisterSda?: (id: string) => void;
 }
 
 export function AccountCard({
@@ -45,6 +47,7 @@ export function AccountCard({
   onShowDetails,
   onDelete,
   onShowMaCode,
+  onRegisterSda,
 }: AccountCardProps): React.JSX.Element {
   const sortable = useSortable({ id: account.id, disabled: !draggable });
   const [showPassword, setShowPassword] = useState(false);
@@ -237,10 +240,20 @@ export function AccountCard({
               Deep Check
             </Button>
           )}
-          {account.hasMaFile === 1 && (
+          {account.hasMaFile === 1 ? (
             <Button size="sm" variant="ghost" onClick={() => onShowMaCode?.(account.id)}>
               <KeyRound className="h-3 w-3" />
               2FA
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onRegisterSda?.(account.id)}
+              title="Привязать мобильный Steam Guard (SDA) прямо из менеджера"
+            >
+              <ShieldPlus className="h-3 w-3" />
+              Привязать SDA
             </Button>
           )}
           <Button size="sm" variant="ghost" onClick={() => onShowDetails?.(account.id)}>

@@ -17,6 +17,7 @@ import { ImportDialog } from "@/components/ImportDialog";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { MaCodeDialog } from "@/components/MaCodeDialog";
 import { AccountDetailsDialog } from "@/components/AccountDetailsDialog";
+import { SdaRegisterDialog } from "@/components/SdaRegisterDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +46,7 @@ export function AccountsPage(): React.JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [maForAccount, setMaForAccount] = useState<string | null>(null);
   const [detailsFor, setDetailsFor] = useState<string | null>(null);
+  const [sdaForAccount, setSdaForAccount] = useState<string | null>(null);
   const [bulkChecking, setBulkChecking] = useState(false);
 
   useEffect(() => {
@@ -260,6 +262,7 @@ export function AccountsPage(): React.JSX.Element {
                     onDelete={(id) => void onDelete(id)}
                     onShowDetails={(id) => setDetailsFor(id)}
                     onShowMaCode={(id) => setMaForAccount(id)}
+                    onRegisterSda={(id) => setSdaForAccount(id)}
                   />
                 ))}
               </div>
@@ -273,6 +276,10 @@ export function AccountsPage(): React.JSX.Element {
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <MaCodeDialog accountId={maForAccount} onOpenChange={(o) => !o && setMaForAccount(null)} />
       <AccountDetailsDialog accountId={detailsFor} onOpenChange={(o) => !o && setDetailsFor(null)} />
+      <SdaRegisterDialog
+        accountId={sdaForAccount}
+        onOpenChange={(o) => !o && setSdaForAccount(null)}
+      />
     </div>
   );
 }

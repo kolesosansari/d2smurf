@@ -71,6 +71,24 @@ const api = {
     exportMaFile: (id: string): Promise<{ ok: boolean; path?: string; error?: string }> =>
       ipcRenderer.invoke("sda:export-mafile", id),
     remove: (id: string): Promise<{ ok: boolean }> => ipcRenderer.invoke("sda:remove", id),
+    startRegistration: (
+      id: string,
+    ): Promise<{
+      ok: boolean;
+      error?: string;
+      sessionId?: string;
+      revocationCode?: string;
+      maskedPhone?: string;
+      alreadyEnabled?: boolean;
+      phoneMissing?: boolean;
+    }> => ipcRenderer.invoke("sda:enable-two-factor", id),
+    submitActivationCode: (
+      sessionId: string,
+      code: string,
+    ): Promise<{ ok: boolean; error?: string; revocationCode?: string }> =>
+      ipcRenderer.invoke("sda:finalize-two-factor", sessionId, code),
+    cancelRegistration: (sessionId: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke("sda:cancel-registration", sessionId),
   },
   backup: {
     export: (): Promise<{ ok: boolean; path?: string }> => ipcRenderer.invoke("backup:export"),
