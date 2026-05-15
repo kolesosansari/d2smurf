@@ -23,6 +23,7 @@
   "include": [
     "electron/**/*.ts",
     "electron/**/*.d.ts",
+    "electron/**/*.json",
     "electron.vite.config.ts"
   ]
 }

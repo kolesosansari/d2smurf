@@ -120,6 +120,38 @@ export interface AppSettings {
   stratzApiKey: string | null;
 }
 
+export type SdaRegistrationStep =
+  | "steamGuard"
+  | "phoneNumber"
+  | "phoneEmail"
+  | "phoneSms"
+  | "activationCode"
+  | "complete";
+
+export type SdaSteamGuardType =
+  | "email"
+  | "device"
+  | "emailConfirmation"
+  | "deviceConfirmation";
+
+export interface SdaStartOptions {
+  phoneNumber?: string;
+  phoneCountryCode?: string;
+}
+
+export interface SdaRegistrationResult {
+  ok: boolean;
+  error?: string;
+  sessionId?: string;
+  nextStep?: SdaRegistrationStep;
+  guardType?: SdaSteamGuardType;
+  guardDetail?: string;
+  revocationCode?: string;
+  maskedPhone?: string;
+  phoneMissing?: boolean;
+  alreadyEnabled?: boolean;
+}
+
 export type IpcChannel =
   | "vault:status"
   | "vault:initialize"
@@ -145,9 +177,16 @@ export type IpcChannel =
   | "sda:add-phone"
   | "sda:confirm-phone"
   | "sda:enable-two-factor"
+  | "sda:submit-steam-guard"
+  | "sda:submit-phone-number"
+  | "sda:check-phone-email"
+  | "sda:confirm-phone-email"
+  | "sda:submit-phone-sms"
   | "sda:finalize-two-factor"
+  | "sda:cancel-registration"
   | "sda:generate-code"
   | "sda:export-mafile"
+  | "sda:remove"
   | "backup:export"
   | "backup:import";
 
