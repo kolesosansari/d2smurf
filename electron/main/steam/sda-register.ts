@@ -242,50 +242,66 @@ function waitForLogonSettled(
 }
 
 /**
- * Exchange steam-user's refresh token for a short-lived WebAPI access token
- * via `IAuthenticationService/GenerateAccessTokenForApp/v1`. We need this
- * for HTTPS calls to IPhoneService — those endpoints accept an
- * `access_token` query parameter (refresh tokens are not accepted there).
+ * Get a fresh short-lived access token via steam-user's internal
+ * `LoginSession`. Under the hood this calls
+ * `IAuthenticationService.GenerateAccessTokenForApp#1` over the active CM
+ * connection (CMAuthTransport), which is the same authenticated channel
+ * SteamKit2's `SteamClient.Authentication` uses in Jessecar SDA.
+ *
+ * The resulting token is a SteamClient-audience JWT. We need it for HTTPS
+ * calls to IPhoneService — IPhoneService endpoints accept any
+ * client-issued access token as an `access_token` query parameter.
  */
-async function ensureAccessToken(pending: PendingSession): Promise<string | null> {
+async function ensureAccessToken(pending: PendingSession): Promise<{
+  token: string | null;
+  error?: string;
+}> {
   if (
     pending.accessToken &&
     pending.accessTokenExpiresAt &&
     pending.accessTokenExpiresAt > Date.now() + 30_000
   ) {
-    return pending.accessToken;
+    return { token: pending.accessToken };
   }
-  if (!pending.refreshToken || !pending.steamId64) return null;
 
-  const body = new URLSearchParams();
-  body.set("refresh_token", pending.refreshToken);
-  body.set("steamid", pending.steamId64);
+  const internal = pending.client as unknown as {
+    _loginSession?: {
+      accessToken?: string;
+      refreshToken?: string;
+      refreshAccessToken?: () => Promise<void>;
+    };
+    _logOnDetails?: { access_token?: string };
+  };
 
-  const url = `${STEAM_API_HOST}/IAuthenticationService/GenerateAccessTokenForApp/v1/?format=json`;
-  let resp: Response;
-  try {
-    resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: body.toString(),
-    });
-  } catch {
-    return null;
+  const loginSession = internal._loginSession;
+  if (loginSession) {
+    try {
+      // steam-session caches the most recently fetched access token. Force
+      // a refresh: GenerateAccessTokenForApp via CMAuthTransport.
+      if (typeof loginSession.refreshAccessToken === "function") {
+        await loginSession.refreshAccessToken();
+      }
+      if (loginSession.accessToken) {
+        pending.accessToken = loginSession.accessToken;
+        // SteamClient JWTs are valid for ~24h; refresh proactively after
+        // 30 minutes to keep the multi-step flow healthy.
+        pending.accessTokenExpiresAt = Date.now() + 30 * 60_000;
+        return { token: pending.accessToken };
+      }
+    } catch (err) {
+      return {
+        token: null,
+        error: `LoginSession.refreshAccessToken() failed: ${(err as Error).message}`,
+      };
+    }
   }
-  const text = await resp.text().catch(() => "");
-  if (!resp.ok || !text) return null;
-  try {
-    const parsed = JSON.parse(text) as { response?: { access_token?: string } };
-    const token = parsed.response?.access_token;
-    if (!token) return null;
-    pending.accessToken = token;
-    // Access tokens live ~24h, but we refresh proactively after 30 minutes
-    // to keep the session healthy across the multi-step SDA flow.
-    pending.accessTokenExpiresAt = Date.now() + 30 * 60_000;
-    return token;
-  } catch {
-    return null;
-  }
+
+  return {
+    token: null,
+    error: loginSession
+      ? "steam-user LoginSession is alive but did not produce an access token."
+      : "steam-user did not expose an internal LoginSession after logon.",
+  };
 }
 
 interface JsonServiceResponse<T> {
@@ -456,12 +472,12 @@ async function finishAuthenticated(sessionId: string): Promise<SdaRegistrationRe
 }
 
 async function waitForPhoneEmailConfirmation(pending: PendingSession): Promise<boolean | undefined> {
-  const accessToken = await ensureAccessToken(pending);
-  if (!accessToken) return undefined;
+  const { token } = await ensureAccessToken(pending);
+  if (!token) return undefined;
   const waiting = await callJsonService<Record<string, unknown>>(
     "IPhoneService/IsAccountWaitingForEmailConfirmation/v1",
     {},
-    accessToken,
+    token,
   );
   if (!waiting.ok) return undefined;
   return getBooleanField(waiting.body, [
@@ -479,9 +495,13 @@ async function beginPhoneAttach(
 ): Promise<SdaRegistrationResult> {
   const pending = getPendingSession(sessionId);
   if (!pending) return { ok: false, error: "Сессия SDA устарела — начни заново." };
-  const accessToken = await ensureAccessToken(pending);
-  if (!accessToken) {
-    return { ok: false, error: "Не удалось получить access token для IPhoneService.", sessionId };
+  const { token, error: tokenError } = await ensureAccessToken(pending);
+  if (!token) {
+    return {
+      ok: false,
+      error: `Не удалось получить access token для IPhoneService${tokenError ? `: ${tokenError}` : "."}`,
+      sessionId,
+    };
   }
 
   const setPhone = await callJsonService<Record<string, unknown>>(
@@ -490,7 +510,7 @@ async function beginPhoneAttach(
       phone_number: phone.phoneNumber,
       phone_country_code: phone.phoneCountryCode,
     },
-    accessToken,
+    token,
   );
   if (!setPhone.ok && setPhone.status !== EResult.Pending) {
     return {
@@ -515,16 +535,20 @@ async function sendPhoneVerificationCodeAndRequestAuthenticator(
 ): Promise<SdaRegistrationResult> {
   const pending = getPendingSession(sessionId);
   if (!pending) return { ok: false, error: "Сессия SDA устарела — начни заново." };
-  const accessToken = await ensureAccessToken(pending);
-  if (!accessToken) {
-    return { ok: false, error: "Не удалось получить access token для IPhoneService.", sessionId };
+  const { token, error: tokenError } = await ensureAccessToken(pending);
+  if (!token) {
+    return {
+      ok: false,
+      error: `Не удалось получить access token для IPhoneService${tokenError ? `: ${tokenError}` : "."}`,
+      sessionId,
+    };
   }
 
   if (!pending.phoneVerificationCodeSent) {
     const sent = await callJsonService<Record<string, unknown>>(
       "IPhoneService/SendPhoneVerificationCode/v1",
       { language: 0 },
-      accessToken,
+      token,
     );
     if (
       !sent.ok &&
@@ -761,9 +785,13 @@ export async function confirmPhoneEmail(
   if (!pending || pending.state !== "awaiting-phone-email") {
     return { ok: false, error: "Сессия SDA устарела — начни заново." };
   }
-  const accessToken = await ensureAccessToken(pending);
-  if (!accessToken) {
-    return { ok: false, error: "Не удалось получить access token для IPhoneService.", sessionId };
+  const { token, error: tokenError } = await ensureAccessToken(pending);
+  if (!token) {
+    return {
+      ok: false,
+      error: `Не удалось получить access token для IPhoneService${tokenError ? `: ${tokenError}` : "."}`,
+      sessionId,
+    };
   }
   const stoken = extractStoken(stokenOrLink);
   if (!stoken) return { ok: false, error: "Вставь ссылку из письма Steam или параметр stoken.", sessionId };
@@ -773,7 +801,7 @@ export async function confirmPhoneEmail(
       steamid: pending.steamId64,
       stoken,
     },
-    accessToken,
+    token,
   );
   if (!confirmed.ok) {
     return {
@@ -811,14 +839,18 @@ export async function submitPhoneSmsCode(
   if (!pending || pending.state !== "awaiting-phone-sms") {
     return { ok: false, error: "Сессия SDA устарела — начни заново." };
   }
-  const accessToken = await ensureAccessToken(pending);
-  if (!accessToken) {
-    return { ok: false, error: "Не удалось получить access token для IPhoneService.", sessionId };
+  const { token, error: tokenError } = await ensureAccessToken(pending);
+  if (!token) {
+    return {
+      ok: false,
+      error: `Не удалось получить access token для IPhoneService${tokenError ? `: ${tokenError}` : "."}`,
+      sessionId,
+    };
   }
   const verified = await callJsonService<Record<string, unknown>>(
     "IPhoneService/VerifyAccountPhoneWithCode/v1",
     { code: code.trim() },
-    accessToken,
+    token,
   );
   if (!verified.ok) {
     return {
