@@ -566,10 +566,21 @@ async function beginPhoneAttach(
     return { ok: true, sessionId, nextStep: "phoneEmail" };
   }
 
-  return sendPhoneVerificationCodeAndRequestAuthenticator(sessionId);
+  return sendPhoneVerificationSms(sessionId);
 }
 
-async function sendPhoneVerificationCodeAndRequestAuthenticator(
+/**
+ * Send the **phone-verification** SMS (i.e. SMS A) and transition the
+ * dialog to the `phone-sms` step so the user can type in the code. We
+ * deliberately do NOT proceed to AddAuthenticator here — Steam will not
+ * mark the phone as verified until `IPhoneService/VerifyAccountPhoneWithCode`
+ * succeeds, and `AddAuthenticator` would just return NoVerifiedPhone.
+ *
+ * `submitPhoneSmsCode` is the next step in the chain: it calls
+ * VerifyAccountPhoneWithCode with the user-entered SMS, then routes into
+ * `requestAuthenticator` to send `TwoFactor.AddAuthenticator#1` over CM.
+ */
+async function sendPhoneVerificationSms(
   sessionId: string,
 ): Promise<SdaRegistrationResult> {
   const pending = getPendingSession(sessionId);
@@ -589,6 +600,9 @@ async function sendPhoneVerificationCodeAndRequestAuthenticator(
       { language: 0 },
       token,
     );
+    // Steam returns InvalidState/Pending/Fail when an SMS is already in
+    // flight — we treat those as "code already on the way" rather than a
+    // failure, so the user can re-enter the code they already received.
     if (
       !sent.ok &&
       sent.status !== EResult.InvalidState &&
@@ -602,11 +616,10 @@ async function sendPhoneVerificationCodeAndRequestAuthenticator(
       };
     }
     pending.phoneVerificationCodeSent = true;
-    // Mirror SteamAuth: it explicitly waits 2s here before continuing.
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
 
-  return requestAuthenticator(sessionId);
+  pending.state = "awaiting-phone-sms";
+  return { ok: true, sessionId, nextStep: "phoneSms" };
 }
 
 /**
@@ -637,7 +650,7 @@ async function requestAuthenticator(sessionId: string): Promise<SdaRegistrationR
     ) {
       if (pending.phoneWasAttached) {
         if (!pending.phoneVerificationCodeSent) {
-          return sendPhoneVerificationCodeAndRequestAuthenticator(sessionId);
+          return sendPhoneVerificationSms(sessionId);
         }
         // We got past SetAccountPhoneNumber / email-confirm / SMS-send,
         // but Steam still refuses to attach a mobile authenticator with
@@ -888,7 +901,7 @@ export async function confirmPhoneEmail(
     };
   }
   pending.phoneWasAttached = true;
-  return sendPhoneVerificationCodeAndRequestAuthenticator(sessionId);
+  return sendPhoneVerificationSms(sessionId);
 }
 
 export async function checkPhoneEmailConfirmation(
@@ -905,7 +918,7 @@ export async function checkPhoneEmailConfirmation(
   }
 
   pending.phoneWasAttached = true;
-  return sendPhoneVerificationCodeAndRequestAuthenticator(sessionId);
+  return sendPhoneVerificationSms(sessionId);
 }
 
 export async function submitPhoneSmsCode(
