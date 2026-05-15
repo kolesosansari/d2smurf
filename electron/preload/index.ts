@@ -6,6 +6,8 @@ import type {
   AccountUpdate,
   AppSettings,
   ImportResult,
+  SdaRegistrationResult,
+  SdaStartOptions,
   VaultStatus,
   VaultUnlockResult,
 } from "../shared/types";
@@ -71,21 +73,26 @@ const api = {
     exportMaFile: (id: string): Promise<{ ok: boolean; path?: string; error?: string }> =>
       ipcRenderer.invoke("sda:export-mafile", id),
     remove: (id: string): Promise<{ ok: boolean }> => ipcRenderer.invoke("sda:remove", id),
-    startRegistration: (
-      id: string,
-    ): Promise<{
-      ok: boolean;
-      error?: string;
-      sessionId?: string;
-      revocationCode?: string;
-      maskedPhone?: string;
-      alreadyEnabled?: boolean;
-      phoneMissing?: boolean;
-    }> => ipcRenderer.invoke("sda:enable-two-factor", id),
+    startRegistration: (id: string, options?: SdaStartOptions): Promise<SdaRegistrationResult> =>
+      ipcRenderer.invoke("sda:enable-two-factor", id, options),
+    submitSteamGuardCode: (sessionId: string, code: string): Promise<SdaRegistrationResult> =>
+      ipcRenderer.invoke("sda:submit-steam-guard", sessionId, code),
+    submitPhoneNumber: (
+      sessionId: string,
+      phoneNumber: string,
+      phoneCountryCode?: string,
+    ): Promise<SdaRegistrationResult> =>
+      ipcRenderer.invoke("sda:submit-phone-number", sessionId, phoneNumber, phoneCountryCode),
+    checkPhoneEmail: (sessionId: string): Promise<SdaRegistrationResult> =>
+      ipcRenderer.invoke("sda:check-phone-email", sessionId),
+    confirmPhoneEmail: (sessionId: string, stokenOrLink: string): Promise<SdaRegistrationResult> =>
+      ipcRenderer.invoke("sda:confirm-phone-email", sessionId, stokenOrLink),
+    submitPhoneSms: (sessionId: string, code: string): Promise<SdaRegistrationResult> =>
+      ipcRenderer.invoke("sda:submit-phone-sms", sessionId, code),
     submitActivationCode: (
       sessionId: string,
       code: string,
-    ): Promise<{ ok: boolean; error?: string; revocationCode?: string }> =>
+    ): Promise<SdaRegistrationResult> =>
       ipcRenderer.invoke("sda:finalize-two-factor", sessionId, code),
     cancelRegistration: (sessionId: string): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke("sda:cancel-registration", sessionId),

@@ -25,13 +25,18 @@ import { refreshAccountPublic } from "../steam/checker";
 import { deepCheckAccount } from "../steam/deep-checker";
 import {
   cancelSdaRegistration,
+  checkPhoneEmailConfirmation,
+  confirmPhoneEmail,
   startSdaRegistration,
+  submitPhoneNumber,
+  submitPhoneSmsCode,
   submitSdaActivationCode,
+  submitSteamGuardCode,
 } from "../steam/sda-register";
 import { generateSteamGuardCode, secondsLeftInWindow } from "../steam/totp";
 import * as autoCheck from "../scheduler/auto-check";
 import { launchSteamWithAccount, startWithOverplus } from "../launcher/steam-launcher";
-import type { AccountInput, AccountUpdate, ImportResult } from "@shared/types";
+import type { AccountInput, AccountUpdate, ImportResult, SdaStartOptions } from "@shared/types";
 
 function getMainWindow(): BrowserWindow | null {
   return BrowserWindow.getAllWindows().find((w) => !w.isDestroyed()) ?? null;
@@ -257,8 +262,29 @@ export function registerIpcHandlers(): void {
     removeMaFile(id);
     return { ok: true };
   });
-  ipcMain.handle("sda:enable-two-factor", async (_e, accountId: string) => {
-    return startSdaRegistration(accountId);
+  ipcMain.handle(
+    "sda:enable-two-factor",
+    async (_e, accountId: string, options?: SdaStartOptions) => {
+      return startSdaRegistration(accountId, options);
+    },
+  );
+  ipcMain.handle("sda:submit-steam-guard", async (_e, sessionId: string, code: string) => {
+    return submitSteamGuardCode(sessionId, code);
+  });
+  ipcMain.handle(
+    "sda:submit-phone-number",
+    async (_e, sessionId: string, phoneNumber: string, phoneCountryCode?: string) => {
+      return submitPhoneNumber(sessionId, phoneNumber, phoneCountryCode);
+    },
+  );
+  ipcMain.handle("sda:check-phone-email", async (_e, sessionId: string) => {
+    return checkPhoneEmailConfirmation(sessionId);
+  });
+  ipcMain.handle("sda:confirm-phone-email", async (_e, sessionId: string, stokenOrLink: string) => {
+    return confirmPhoneEmail(sessionId, stokenOrLink);
+  });
+  ipcMain.handle("sda:submit-phone-sms", async (_e, sessionId: string, code: string) => {
+    return submitPhoneSmsCode(sessionId, code);
   });
   ipcMain.handle(
     "sda:finalize-two-factor",
