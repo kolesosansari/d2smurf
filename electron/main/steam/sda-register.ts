@@ -72,6 +72,13 @@ interface PendingSession {
   steamGuardDomain?: string | null;
   lastGuardCodeWrong?: boolean;
   logonSettled?: boolean;
+  // Captured from steam-user's `accountLimitations` event, fired by Steam
+  // shortly after logon. Used to detect Limited User Accounts (accounts
+  // that haven't spent $5+ on the Steam store), which Valve forbids from
+  // attaching a phone or enabling SDA.
+  isLimited?: boolean;
+  isCommunityBanned?: boolean;
+  isLocked?: boolean;
 }
 
 const pendingSessions = new Map<string, PendingSession>();
@@ -147,6 +154,20 @@ function diagnosticText(status: number | undefined): string {
     "• На аккаунте ноль покупок/трат на $5+ — Steam может блокировать часть операций.",
     "• Недавно отключали 2FA — действует кулдаун.",
     "• Аккаунт limited/restricted или Steam временно режет операцию по риску.",
+  ].join("\n");
+}
+
+function limitedAccountMessage(): string {
+  return [
+    "Аккаунт Steam помечен как Limited User: на нём не было покупок в Steam Store на $5+ (или эквивалент в твоей валюте).",
+    "Valve запрещает Limited-аккаунтам привязывать телефон и включать мобильный аутентификатор — это анти-спам ограничение.",
+    "",
+    "Что сделать:",
+    "1. Зайди в Steam → Аккаунт → Пополнить кошелёк (или купи любую игру / Steam Gift Card на $5+).",
+    "2. Дождись, пока статус Limited снимется (обычно сразу после оплаты).",
+    "3. Запусти привязку SDA в менеджере заново.",
+    "",
+    "Подробнее: https://help.steampowered.com/en/faqs/view/71D3-35C2-AD96-AA3A",
   ].join("\n");
 }
 
@@ -462,6 +483,24 @@ async function finishAuthenticated(sessionId: string): Promise<SdaRegistrationRe
     // Non-fatal: enableTwoFactor will surface the same condition.
   }
 
+  // `accountLimitations` event fires from steam-user shortly after
+  // `loggedOn`. Give it a brief window to land before we decide whether to
+  // start the phone-attach flow — Steam will reject phone attach on
+  // limited accounts anyway, so we want to surface that early instead of
+  // wasting the user's time on the email-confirm step.
+  if (pending.isLimited === undefined) {
+    await new Promise((resolve) => setTimeout(resolve, 750));
+  }
+
+  if (pending.isLimited && !pending.phoneWasAttached) {
+    killSession(sessionId);
+    return {
+      ok: false,
+      limitedAccount: true,
+      error: limitedAccountMessage(),
+    };
+  }
+
   if (pending.pendingPhone && !pending.phoneWasAttached) {
     const phone = pending.pendingPhone;
     pending.pendingPhone = undefined;
@@ -600,11 +639,36 @@ async function requestAuthenticator(sessionId: string): Promise<SdaRegistrationR
         if (!pending.phoneVerificationCodeSent) {
           return sendPhoneVerificationCodeAndRequestAuthenticator(sessionId);
         }
+        // We got past SetAccountPhoneNumber / email-confirm / SMS-send,
+        // but Steam still refuses to attach a mobile authenticator with
+        // NoVerifiedPhone. By far the most common cause is that the
+        // account is a Limited User — Valve silently ignores phone attach
+        // for those even after the Steam-web "Email Confirmed" page.
+        if (pending.isLimited) {
+          return {
+            ok: false,
+            limitedAccount: true,
+            error: limitedAccountMessage(),
+            sessionId,
+          };
+        }
         return {
           ok: false,
           error:
             "Steam всё ещё считает телефон неподтверждённым после email-клика и отправки SMS. Проверь, что письмо было подтверждено именно для этого аккаунта, и попробуй начать заново.",
           sessionId,
+        };
+      }
+      // Steam rejected AddAuthenticator with NoVerifiedPhone before we
+      // even attempted phone attach. If the account is limited, Valve
+      // won't let us proceed at all — surface that instead of pushing the
+      // user into a phone-number screen they can't escape.
+      if (pending.isLimited) {
+        killSession(sessionId);
+        return {
+          ok: false,
+          limitedAccount: true,
+          error: limitedAccountMessage(),
         };
       }
       pending.state = "awaiting-phone-number";
@@ -679,6 +743,19 @@ export async function startSdaRegistration(
     timer: setTimeout(() => killSession(sessionId), SESSION_TTL_MS),
   };
   pendingSessions.set(sessionId, pending);
+
+  // Steam emits `ClientIsLimitedAccount` right after logon. We capture it
+  // so the phone-attach flow can surface a meaningful error before the
+  // user wastes time clicking ADD PHONE in their email. Use `on` (not
+  // `once`) because Steam may resend this when the account state changes.
+  client.on(
+    "accountLimitations",
+    (limited: boolean, communityBanned: boolean, locked: boolean) => {
+      pending.isLimited = limited;
+      pending.isCommunityBanned = communityBanned;
+      pending.isLocked = locked;
+    },
+  );
 
   try {
     client.logOn({

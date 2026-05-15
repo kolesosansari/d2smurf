@@ -150,6 +150,7 @@ export interface SdaRegistrationResult {
   maskedPhone?: string;
   phoneMissing?: boolean;
   alreadyEnabled?: boolean;
+  limitedAccount?: boolean;
 }
 
 export type IpcChannel =

@@ -35,7 +35,13 @@ type Phase =
   | { name: "code-prompt"; sessionId: string; revocationCode?: string; maskedPhone?: string }
   | { name: "submitting"; sessionId: string; revocationCode?: string }
   | { name: "success"; revocationCode?: string }
-  | { name: "error"; message: string; revocationCode?: string; sessionId?: string };
+  | {
+      name: "error";
+      message: string;
+      revocationCode?: string;
+      sessionId?: string;
+      limitedAccount?: boolean;
+    };
 
 function sessionIdFromPhase(phase: Phase): string | undefined {
   if (
@@ -206,6 +212,7 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
         message: result.error ?? "Не удалось продолжить привязку SDA.",
         revocationCode: result.revocationCode,
         sessionId: result.sessionId,
+        limitedAccount: result.limitedAccount,
       });
       return;
     }
@@ -581,7 +588,13 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
 
         {phase.name === "error" && (
           <div className="space-y-3 text-sm">
-            <div className="whitespace-pre-line rounded-md border border-destructive/40 bg-destructive/10 p-3 text-destructive">
+            <div
+              className={`whitespace-pre-line rounded-md border p-3 ${
+                phase.limitedAccount
+                  ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                  : "border-destructive/40 bg-destructive/10 text-destructive"
+              }`}
+            >
               <ShieldAlert className="mb-1 h-4 w-4" />
               {phase.message}
             </div>
@@ -590,14 +603,27 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
               <Button variant="ghost" onClick={() => void close()}>
                 Закрыть
               </Button>
-              <Button
-                onClick={() => {
-                  if (phase.sessionId) void api.sda.cancelRegistration(phase.sessionId);
-                  setPhase({ name: "intro" });
-                }}
-              >
-                Попробовать снова
-              </Button>
+              {phase.limitedAccount ? (
+                <Button
+                  onClick={() => {
+                    void window.open(
+                      "https://store.steampowered.com/account/addfunds",
+                      "_blank",
+                    );
+                  }}
+                >
+                  Открыть Steam Wallet
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => {
+                    if (phase.sessionId) void api.sda.cancelRegistration(phase.sessionId);
+                    setPhase({ name: "intro" });
+                  }}
+                >
+                  Попробовать снова
+                </Button>
+              )}
             </DialogFooter>
           </div>
         )}
