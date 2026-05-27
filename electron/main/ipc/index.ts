@@ -29,7 +29,6 @@ import {
   confirmPhoneEmail,
   startSdaRegistration,
   submitPhoneNumber,
-  submitPhoneSmsCode,
   submitSdaActivationCode,
   submitSteamGuardCode,
 } from "../steam/sda-register";
@@ -282,9 +281,6 @@ export function registerIpcHandlers(): void {
   });
   ipcMain.handle("sda:confirm-phone-email", async (_e, sessionId: string, stokenOrLink: string) => {
     return confirmPhoneEmail(sessionId, stokenOrLink);
-  });
-  ipcMain.handle("sda:submit-phone-sms", async (_e, sessionId: string, code: string) => {
-    return submitPhoneSmsCode(sessionId, code);
   });
   ipcMain.handle(
     "sda:finalize-two-factor",

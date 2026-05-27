@@ -87,8 +87,6 @@ const api = {
       ipcRenderer.invoke("sda:check-phone-email", sessionId),
     confirmPhoneEmail: (sessionId: string, stokenOrLink: string): Promise<SdaRegistrationResult> =>
       ipcRenderer.invoke("sda:confirm-phone-email", sessionId, stokenOrLink),
-    submitPhoneSms: (sessionId: string, code: string): Promise<SdaRegistrationResult> =>
-      ipcRenderer.invoke("sda:submit-phone-sms", sessionId, code),
     submitActivationCode: (
       sessionId: string,
       code: string,
