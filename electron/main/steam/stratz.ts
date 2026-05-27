@@ -8,6 +8,7 @@
  * lives in app_settings.stratzApiKey and is supplied via Bearer auth.
  */
 import { getSettings } from "../database/settings.repo";
+import { fetchWithProxy } from "../net/proxy";
 
 interface StratzPlayerResponse {
   data?: {
@@ -40,7 +41,10 @@ export interface StratzData {
  * 32-bit Dota account ID. Returns null if no API key is configured or
  * the player is private / not found.
  */
-export async function fetchStratzPlayer(accountId32: string | number): Promise<StratzData | null> {
+export async function fetchStratzPlayer(
+  accountId32: string | number,
+  proxy?: string | null,
+): Promise<StratzData | null> {
   const apiKey = getSettings().stratzApiKey;
   if (!apiKey) return null;
 
@@ -59,7 +63,7 @@ export async function fetchStratzPlayer(accountId32: string | number): Promise<S
 
   let res: Response;
   try {
-    res = await fetch("https://api.stratz.com/graphql", {
+    res = await fetchWithProxy("https://api.stratz.com/graphql", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -67,7 +71,7 @@ export async function fetchStratzPlayer(accountId32: string | number): Promise<S
         "User-Agent": "STRATZ_API",
       },
       body: JSON.stringify({ query, variables: { id: Number(accountId32) } }),
-    });
+    }, proxy);
   } catch {
     return null;
   }

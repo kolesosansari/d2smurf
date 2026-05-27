@@ -64,6 +64,14 @@ declare module "steam-user" {
     logOn(details: LogOnDetails | true): void;
     logOff(): void;
     setPersona(state: number, name?: string): void;
+    gamesPlayed(apps: number | Array<number | { game_id: number | string }>, force?: boolean): void;
+    sendToGC(
+      appid: number,
+      msgType: number,
+      protoBufHeader: Record<string, unknown> | null,
+      payload: Buffer,
+      callback?: (appid: number, msgType: number, payload: Buffer) => void,
+    ): void;
 
     enableTwoFactor(): Promise<AddAuthenticatorResponse>;
     finalizeTwoFactor(secret: string | Buffer, activationCode: string): Promise<void>;
@@ -78,6 +86,12 @@ declare module "steam-user" {
     on(event: "refreshToken", listener: (refreshToken: string) => void): this;
     on(event: "disconnected", listener: (eresult: number, msg?: string) => void): this;
     on(event: "debug", listener: (msg: string) => void): this;
+    on(event: "appLaunched", listener: (appid: number) => void): this;
+    on(event: "appQuit", listener: (appid: number) => void): this;
+    on(
+      event: "receivedFromGC",
+      listener: (appid: number, msgType: number, payload: Buffer) => void,
+    ): this;
     on(
       event: "user",
       listener: (

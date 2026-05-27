@@ -18,7 +18,7 @@
  *
  *   1. Logging in can require an email/device Steam Guard code.
  *   2. Accounts without a verified phone need a phone-attach flow.
- *   3. Adding the authenticator sends an SMS activation code.
+ *   3. Adding the authenticator sends an activation code by SMS or voice call.
  *
  * We keep the same `SteamUser` (and its CM connection + tokens) across
  * those steps so the same session is reused for every call.
@@ -27,6 +27,7 @@ import { randomUUID } from "node:crypto";
 import SteamUser from "steam-user";
 import * as SteamTotp from "steam-totp";
 import { getAccount, setMaFile } from "../database/accounts.repo";
+import { fetchWithProxy, redactProxy, steamUserProxyOptions } from "../net/proxy";
 import type {
   MaFileSecrets,
   SdaRegistrationResult,
@@ -58,6 +59,8 @@ interface PendingSession {
   client: SteamUser;
   accountId: string;
   accountLogin: string;
+  deviceId: string;
+  proxy?: string | null;
   steamId64?: string;
   refreshToken?: string;
   accessToken?: string;
@@ -83,6 +86,10 @@ interface PendingSession {
 }
 
 const pendingSessions = new Map<string, PendingSession>();
+
+function generateSdaDeviceId(): string {
+  return `android:${randomUUID()}`;
+}
 
 function maskLogin(value: string): string {
   if (value.length <= 2) return "**";
@@ -155,7 +162,7 @@ function formatEResult(status: number | undefined): string {
 
 function diagnosticText(status: number | undefined): string {
   if (status === EResult.NoVerifiedPhone || status === EResult.NoMobileDeviceAvailable) {
-    return "На аккаунте нет подтверждённого телефона. Введи номер в менеджере, затем подтверди письмо Steam и SMS-код.";
+    return "На аккаунте нет подтверждённого телефона. Введи номер в менеджере, затем подтверди письмо Steam и код из SMS/звонка.";
   }
   if (status === EResult.PhoneActivityLimitExceeded) {
     return "Steam отклонил привязку: на номере/аккаунте превышен лимит телефонных операций. Нужно подождать кулдаун Valve.";
@@ -200,10 +207,10 @@ function limitedAccountMessage(): string {
 
 function phoneServiceError(action: string, status?: number, errorMessage?: string): string {
   if (action === "SendPhoneVerificationCode" && status === EResult.InvalidState) {
-    return "Steam пока не готов отправить SMS-код активации. Обычно это значит, что подтверждение ADD PHONE NUMBER из email ещё не обработано или телефон не был добавлен к этому аккаунту.";
+    return "Steam пока не готов отправить код активации по SMS/звонку. Обычно это значит, что подтверждение ADD PHONE NUMBER из email ещё не обработано или телефон не был добавлен к этому аккаунту.";
   }
   if (action === "SendPhoneVerificationCode" && status === EResult.Fail) {
-    return "Steam не отправил SMS-код активации (Fail (2)). Возможные причины: телефон не подтверждён через email, номер отклонён Steam, аккаунт/номер под лимитом или Steam считает операцию рискованной.";
+    return "Steam не отправил код активации по SMS/звонку (Fail (2)). Возможные причины: телефон не подтверждён через email, номер отклонён Steam, аккаунт/номер под лимитом или Steam считает операцию рискованной.";
   }
   if (status === EResult.PhoneActivityLimitExceeded) {
     return "Steam отклонил операцию с телефоном: превышен лимит. Подожди кулдаун Valve.";
@@ -420,7 +427,23 @@ function normalizeAddAuthenticatorBody(
   };
 }
 
-async function getSteamTimeOffset(): Promise<number> {
+async function getSteamTimeOffset(proxy?: string | null): Promise<number> {
+  if (proxy) {
+    try {
+      const res = await fetchWithProxy(
+        "https://api.steampowered.com/ITwoFactorService/QueryTime/v1/",
+        { method: "POST" },
+        proxy,
+      );
+      const json = (await res.json()) as { response?: { server_time?: string | number } };
+      const serverTime = Number(json.response?.server_time);
+      if (Number.isFinite(serverTime) && serverTime > 0) {
+        return serverTime - Math.floor(Date.now() / 1000);
+      }
+    } catch {
+      // Fall back to steam-totp's direct QueryTime helper below.
+    }
+  }
   const totp = SteamTotp as unknown as {
     getTimeOffset?: (callback: (err: Error | null, offset?: number) => void) => void;
   };
@@ -440,6 +463,7 @@ async function callJsonService<T>(
   serviceMethod: string,
   payload: Record<string, string | number | boolean | undefined>,
   accessToken: string,
+  proxy?: string | null,
 ): Promise<JsonServiceResponse<T>> {
   const body = new URLSearchParams();
   for (const [key, value] of Object.entries(payload)) {
@@ -450,14 +474,14 @@ async function callJsonService<T>(
   )}&format=json`;
   let resp: Response;
   try {
-    resp = await fetch(url, {
+    resp = await fetchWithProxy(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
         "User-Agent": MOBILE_APP_USER_AGENT,
       },
       body: body.toString(),
-    });
+    }, proxy);
   } catch (err) {
     return { ok: false, errorMessage: (err as Error).message };
   }
@@ -611,6 +635,7 @@ async function waitForPhoneEmailConfirmation(
     "IPhoneService/IsAccountWaitingForEmailConfirmation/v1",
     {},
     token,
+    pending.proxy,
   );
   const waitingForEmail = waiting.ok
     ? getBooleanField(waiting.body, [
@@ -658,6 +683,7 @@ async function beginPhoneAttach(
       phone_country_code: phone.phoneCountryCode,
     },
     token,
+    pending.proxy,
   );
   logSda(
     sessionId,
@@ -691,7 +717,7 @@ async function beginPhoneAttach(
 }
 
 /**
- * Mirror SteamAuth's post-email step: request Steam's one SMS activation
+ * Mirror SteamAuth's post-email step: request Steam's one activation
  * code, wait briefly, then call AddAuthenticator. Do not call
  * VerifyAccountPhoneWithCode here; that would consume the same one-time code
  * that FinalizeAddAuthenticator validates.
@@ -713,6 +739,7 @@ async function sendPhoneVerificationSms(sessionId: string): Promise<SdaRegistrat
       "IPhoneService/SendPhoneVerificationCode/v1",
       {},
       token,
+      pending.proxy,
     );
     logSda(
       sessionId,
@@ -761,12 +788,13 @@ async function requestAuthenticatorViaWebApi(
     "ITwoFactorService/AddAuthenticator/v1",
     {
       steamid: pending.steamId64,
-      authenticator_time: Math.floor(Date.now() / 1000),
+      authenticator_time: Math.floor(Date.now() / 1000) + (await getSteamTimeOffset(pending.proxy)),
       authenticator_type: 1,
       device_identifier: deviceIdentifier,
       sms_phone_id: 1,
     },
     token,
+    pending.proxy,
   );
   const body = normalizeAddAuthenticatorBody(added.body, added.status);
   logSda(
@@ -787,15 +815,29 @@ async function requestAuthenticatorViaWebApi(
 }
 
 /**
- * Calls `client.enableTwoFactor()` (which under the hood sends
- * `TwoFactor.AddAuthenticator#1` as a CM unified message — the equivalent
- * of SteamKit2's `UnifiedMessages.SendMessage<ITwoFactor>` in Jessecar's
- * SDA 1.0.15).
+ * Starts AddAuthenticator. After phone-email confirmation we intentionally
+ * follow SteamAuth's WebAPI path exactly: random Android device id, Steam
+ * time, `sms_phone_id=1`. CM is kept only as the pre-phone probe because
+ * steam-user exposes a convenient "no verified phone" signal there.
  */
 async function requestAuthenticator(sessionId: string): Promise<SdaRegistrationResult> {
   const pending = getPendingSession(sessionId);
   if (!pending || !pending.steamId64) {
     return { ok: false, error: "Сессия SDA устарела — начни заново." };
+  }
+
+  if (pending.activationSmsRequested) {
+    const webApiBody = await requestAuthenticatorViaWebApi(sessionId, pending, pending.deviceId);
+    if (!webApiBody) {
+      return {
+        ok: true,
+        nextStep: "phoneEmail",
+        error:
+          "Steam принял запрос на код активации, но не разрешил создать SDA-секреты. Не вводи номер заново: подожди 10-20 секунд и нажми проверку ещё раз. Если повторяется, Steam/номер/аккаунт под лимитом.",
+        sessionId,
+      };
+    }
+    return finishAuthenticatorRequest(sessionId, pending, webApiBody, pending.deviceId);
   }
 
   const deviceIdentifier = SteamTotp.getDeviceID(pending.steamId64);
@@ -851,7 +893,7 @@ async function requestAuthenticator(sessionId: string): Promise<SdaRegistrationR
         if (!pending.activationSmsRequested) {
           return sendPhoneVerificationSms(sessionId);
         }
-        // We got past SetAccountPhoneNumber / email-confirm / SMS-send,
+        // We got past SetAccountPhoneNumber / email-confirm / code-send,
         // but Steam still refuses to attach a mobile authenticator with
         // NoVerifiedPhone. By far the most common cause is that the
         // account is a Limited User — Valve silently ignores phone attach
@@ -868,7 +910,7 @@ async function requestAuthenticator(sessionId: string): Promise<SdaRegistrationR
           ok: true,
           nextStep: "phoneEmail",
           error:
-            "Email подтверждён и Steam принял запрос на SMS, но AddAuthenticator всё ещё возвращает Fail (2). Не вводи номер заново: подожди 10-20 секунд и нажми проверку ещё раз. Если повторяется, Steam отклоняет именно добавление SDA для этого номера/аккаунта.",
+            "Email подтверждён и Steam принял запрос на код активации, но AddAuthenticator всё ещё возвращает Fail (2). Не вводи номер заново: подожди 10-20 секунд и нажми проверку ещё раз. Если повторяется, Steam отклоняет именно добавление SDA для этого номера/аккаунта.",
           sessionId,
         };
       }
@@ -902,6 +944,16 @@ async function requestAuthenticator(sessionId: string): Promise<SdaRegistrationR
     };
   }
 
+  return finishAuthenticatorRequest(sessionId, pending, addBody, deviceIdentifier);
+}
+
+function finishAuthenticatorRequest(
+  sessionId: string,
+  pending: PendingSession,
+  addBody: AddAuthenticatorBody,
+  deviceIdentifier: string,
+): SdaRegistrationResult {
+  const status = addBody.status;
   const sharedSecret = addBody.shared_secret;
   const identitySecret = addBody.identity_secret;
   if (!sharedSecret || !identitySecret) {
@@ -951,19 +1003,24 @@ export async function startSdaRegistration(
     };
   }
 
-  const client = new SteamUser({ autoRelogin: false });
+  const client = new SteamUser({ autoRelogin: false, ...steamUserProxyOptions(account.proxy) });
   const sessionId = randomUUID();
   const pending: PendingSession = {
     client,
     accountId,
     accountLogin: account.login,
+    deviceId: generateSdaDeviceId(),
+    proxy: account.proxy,
     state: "starting",
     pendingPhone: normalizePhoneOptions(options),
     expiresAt: Date.now() + SESSION_TTL_MS,
     timer: setTimeout(() => killSession(sessionId), SESSION_TTL_MS),
   };
   pendingSessions.set(sessionId, pending);
-  logSda(sessionId, pending, "start", { hasPhoneInput: Boolean(pending.pendingPhone) });
+  logSda(sessionId, pending, "start", {
+    hasPhoneInput: Boolean(pending.pendingPhone),
+    proxy: redactProxy(account.proxy),
+  });
 
   // Steam emits `ClientIsLimitedAccount` right after logon. We capture it
   // so the phone-attach flow can surface a meaningful error before the
@@ -1123,6 +1180,7 @@ export async function confirmPhoneEmail(
       stoken,
     },
     token,
+    pending.proxy,
   );
   logSda(
     sessionId,
@@ -1167,8 +1225,8 @@ export async function checkPhoneEmailConfirmation(
   const result = await sendPhoneVerificationSms(sessionId);
   if (
     !result.ok &&
-    (result.error?.startsWith("Steam пока не готов отправить SMS-код активации") ||
-      result.error?.startsWith("Steam не отправил SMS-код активации (Fail (2))"))
+    (result.error?.startsWith("Steam пока не готов отправить код активации") ||
+      result.error?.startsWith("Steam не отправил код активации"))
   ) {
     return {
       ok: true,
@@ -1196,7 +1254,7 @@ async function finalizeAuthenticatorViaWebApi(
     };
   }
 
-  let timeOffset = await getSteamTimeOffset();
+  let timeOffset = await getSteamTimeOffset(session.proxy);
   for (let attempt = 0; attempt <= 10; attempt += 1) {
     const authenticatorTime = Math.floor(Date.now() / 1000) + timeOffset;
     const finalized = await callJsonService<Record<string, unknown>>(
@@ -1209,6 +1267,7 @@ async function finalizeAuthenticatorViaWebApi(
         validate_sms_code: 1,
       },
       token,
+      session.proxy,
     );
     const body = finalized.body ?? {};
     const status = numericStatusFromJson(body) ?? finalized.status;
@@ -1283,10 +1342,10 @@ export async function submitSdaActivationCode(
       logSda(sessionId, session, "finalize-authenticator-webapi-success-after-cm-error");
     } else {
       const error = fallback.badCode
-        ? "Steam отверг SMS-код активации. Проверь, что вводишь самый свежий SMS-код именно от текущей попытки, и попробуй снова."
+        ? "Steam отверг код активации. Проверь, что вводишь самый свежий код из SMS/звонка именно от текущей попытки, и попробуй снова."
         : (fallback.error ??
           (message === "Invalid activation code"
-            ? "Steam отверг SMS-код активации. Проверь код и попробуй снова."
+            ? "Steam отверг код активации из SMS/звонка. Проверь код и попробуй снова."
             : `Steam отверг код активации: ${message}`));
       return {
         ok: false,

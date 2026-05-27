@@ -12,11 +12,13 @@
  */
 import SteamUser from "steam-user";
 import * as SteamTotp from "steam-totp";
+import { steamUserProxyOptions } from "../net/proxy";
 
 export interface SteamLogonInput {
   login: string;
   password: string;
   sharedSecret?: string | null;
+  proxy?: string | null;
 }
 
 export interface SteamLogonResult {
@@ -50,7 +52,7 @@ export function steamLogon(input: SteamLogonInput): Promise<SteamLogonResult> {
       resolve(r);
     };
 
-    const client = new SteamUser({ autoRelogin: false });
+    const client = new SteamUser({ autoRelogin: false, ...steamUserProxyOptions(input.proxy) });
 
     const timeout = setTimeout(() => {
       finish({ ok: false, error: "Steam logon timed out (30s)." });

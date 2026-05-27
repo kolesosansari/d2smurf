@@ -6,6 +6,7 @@ import type {
   AccountUpdate,
   AppSettings,
   ImportResult,
+  ProxyTestResult,
   SdaRegistrationResult,
   SdaStartOptions,
   VaultStatus,
@@ -58,6 +59,9 @@ const api = {
     get: (): Promise<AppSettings> => ipcRenderer.invoke("settings:get"),
     update: (patch: Partial<AppSettings>): Promise<AppSettings> =>
       ipcRenderer.invoke("settings:update", patch),
+  },
+  proxy: {
+    test: (proxy: string): Promise<ProxyTestResult> => ipcRenderer.invoke("proxy:test", proxy),
   },
   launcher: {
     startSteam: (id: string): Promise<{ ok: boolean; message: string }> =>

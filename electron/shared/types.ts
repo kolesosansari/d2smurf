@@ -89,6 +89,13 @@ export interface VaultUnlockResult {
   error?: string;
 }
 
+export interface ProxyTestResult {
+  ok: boolean;
+  ip?: string;
+  proxy?: string;
+  error?: string;
+}
+
 export interface ImportTxtParsed {
   login: string;
   password: string;
@@ -172,6 +179,7 @@ export type IpcChannel =
   | "import:mafile-folder"
   | "settings:get"
   | "settings:update"
+  | "proxy:test"
   | "launcher:start-steam"
   | "launcher:start-with-overplus"
   | "sda:add-phone"

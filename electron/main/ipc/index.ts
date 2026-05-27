@@ -13,6 +13,7 @@ import {
   updateAccount,
 } from "../database/accounts.repo";
 import { getSettings, updateSettings } from "../database/settings.repo";
+import { testProxy } from "../net/proxy";
 import {
   getStatus,
   initializeVault,
@@ -219,6 +220,9 @@ export function registerIpcHandlers(): void {
     autoCheck.start();
     return next;
   });
+
+  // ---- proxy ----
+  ipcMain.handle("proxy:test", async (_e, proxy: string) => testProxy(proxy));
 
   // ---- launcher ----
   ipcMain.handle("launcher:start-steam", async (_e, id: string) => {

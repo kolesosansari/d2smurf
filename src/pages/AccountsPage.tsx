@@ -126,9 +126,9 @@ export function AccountsPage(): React.JSX.Element {
   const onDeepCheck = async (id: string) => {
     const result = await deepCheck(id);
     if (!result.ok) {
-      window.alert(`Deep check failed:\n${result.error ?? "unknown error"}\n\nSteps:\n${result.steps.join("\n")}`);
+      window.alert(`Dota чек не прошел:\n${result.error ?? "unknown error"}\n\nSteps:\n${result.steps.join("\n")}`);
     } else if (result.steps.length) {
-      console.info("Deep check steps:", result.steps);
+      console.info("Dota check steps:", result.steps);
     }
   };
 

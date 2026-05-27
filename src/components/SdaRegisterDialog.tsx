@@ -349,7 +349,7 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
           <DialogTitle>Привязка SDA (Steam Guard Mobile)</DialogTitle>
           <DialogDescription>
             Менеджер залогинится в Steam Mobile API и проведёт через нужные коды: Steam Guard,
-            телефон и SMS активации.
+            телефон и код активации из SMS или звонка.
           </DialogDescription>
         </DialogHeader>
 
@@ -368,7 +368,7 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
                 </li>
                 <li>
                   Если телефона нет, введи номер здесь. Steam может прислать письмо со ссылкой
-                  подтверждения, затем SMS для SDA.
+                  подтверждения, затем SMS или позвонить с кодом для SDA.
                 </li>
                 <li>
                   После успеха сохрани <strong>revocation code</strong> — он нужен для отвязки SDA.
@@ -509,20 +509,23 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
           <div className="space-y-4 text-sm">
             <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-emerald-300">
               <p>
-                Steam отправил SMS с кодом активации SDA
+                Steam отправил код активации SDA по SMS или звонком
                 {phase.maskedPhone ? ` на номер ${phase.maskedPhone}` : ""}.
               </p>
-              <p className="mt-1 text-xs">Введи код сюда, чтобы завершить привязку.</p>
+              <p className="mt-1 text-xs">
+                Введи сюда код из SMS или голосового звонка. Не начинай новую попытку, пока ждёшь
+                этот код: старые коды могут перестать подходить.
+              </p>
             </div>
 
             {phase.revocationCode && <RevocationCodeBox code={phase.revocationCode} preview />}
 
             <div className="space-y-1">
-              <Label>SMS-код активации SDA</Label>
+              <Label>Код активации SDA из SMS/звонка</Label>
               <Input
                 value={activationCode}
                 onChange={(e) => setActivationCode(e.target.value)}
-                placeholder="например: ABC12"
+                placeholder="например: 12345 или ABC12"
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && activationCode.trim()) void submitActivation();

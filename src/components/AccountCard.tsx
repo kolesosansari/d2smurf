@@ -234,10 +234,10 @@ export function AccountCard({
               size="sm"
               variant="ghost"
               onClick={() => onDeepCheck?.(account.id)}
-              title="Логин в Steam → STRATZ → public refresh"
+              title="Steam + Dota GC: LP, поведение, ранг, аватар"
             >
               <ShieldCheck className="h-3 w-3" />
-              Deep Check
+              Dota чек
             </Button>
           )}
           {account.hasMaFile === 1 ? (
