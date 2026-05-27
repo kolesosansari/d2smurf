@@ -6,6 +6,7 @@ import type {
   AccountUpdate,
   AppSettings,
   ImportResult,
+  ProxyTestResult,
   SdaRegistrationResult,
   SdaStartOptions,
   VaultStatus,
@@ -59,6 +60,9 @@ const api = {
     update: (patch: Partial<AppSettings>): Promise<AppSettings> =>
       ipcRenderer.invoke("settings:update", patch),
   },
+  proxy: {
+    test: (proxy: string): Promise<ProxyTestResult> => ipcRenderer.invoke("proxy:test", proxy),
+  },
   launcher: {
     startSteam: (id: string): Promise<{ ok: boolean; message: string }> =>
       ipcRenderer.invoke("launcher:start-steam", id),
@@ -87,8 +91,6 @@ const api = {
       ipcRenderer.invoke("sda:check-phone-email", sessionId),
     confirmPhoneEmail: (sessionId: string, stokenOrLink: string): Promise<SdaRegistrationResult> =>
       ipcRenderer.invoke("sda:confirm-phone-email", sessionId, stokenOrLink),
-    submitPhoneSms: (sessionId: string, code: string): Promise<SdaRegistrationResult> =>
-      ipcRenderer.invoke("sda:submit-phone-sms", sessionId, code),
     submitActivationCode: (
       sessionId: string,
       code: string,

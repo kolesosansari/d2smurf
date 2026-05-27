@@ -28,6 +28,8 @@ export function AccountDetailsDialog({ accountId, onOpenChange }: Props): React.
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [maInfo, setMaInfo] = useState<string | null>(null);
+  const [proxyChecking, setProxyChecking] = useState(false);
+  const [proxyInfo, setProxyInfo] = useState<string | null>(null);
 
   useEffect(() => {
     if (!accountId) {
@@ -39,6 +41,7 @@ export function AccountDetailsDialog({ accountId, onOpenChange }: Props): React.
     setTags(found?.tags?.join(", ") ?? "");
     setError(null);
     setMaInfo(null);
+    setProxyInfo(null);
   }, [accountId, accounts]);
 
   const onSave = async () => {
@@ -81,6 +84,15 @@ export function AccountDetailsDialog({ accountId, onOpenChange }: Props): React.
     }
   };
 
+  const onTestProxy = async () => {
+    if (!draft?.proxy?.trim()) return;
+    setProxyChecking(true);
+    setProxyInfo(null);
+    const result = await api.proxy.test(draft.proxy.trim());
+    setProxyInfo(result.ok ? `IP через proxy: ${result.ip}` : `Proxy не работает: ${result.error}`);
+    setProxyChecking(false);
+  };
+
   if (!draft) return <></>;
 
   return (
@@ -118,11 +130,25 @@ export function AccountDetailsDialog({ accountId, onOpenChange }: Props): React.
             </div>
             <div className="space-y-1">
               <Label>Прокси</Label>
-              <Input
-                value={draft.proxy ?? ""}
-                onChange={(e) => setDraft({ ...draft, proxy: e.target.value })}
-                placeholder="host:port:user:pass"
-              />
+              <div className="flex gap-2">
+                <Input
+                  value={draft.proxy ?? ""}
+                  onChange={(e) => {
+                    setDraft({ ...draft, proxy: e.target.value });
+                    setProxyInfo(null);
+                  }}
+                  placeholder="http://user:pass@host:port или socks5://127.0.0.1:40000"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onTestProxy}
+                  disabled={!draft.proxy?.trim() || proxyChecking}
+                >
+                  {proxyChecking ? "Проверяю..." : "Проверить"}
+                </Button>
+              </div>
+              {proxyInfo && <p className="text-xs text-muted-foreground">{proxyInfo}</p>}
             </div>
           </div>
           <div className="space-y-1">

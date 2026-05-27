@@ -31,18 +31,22 @@ type Phase =
     }
   | { name: "phone-number"; sessionId: string }
   | { name: "phone-email"; sessionId: string }
-  | { name: "phone-sms"; sessionId: string }
   | { name: "code-prompt"; sessionId: string; revocationCode?: string; maskedPhone?: string }
   | { name: "submitting"; sessionId: string; revocationCode?: string }
   | { name: "success"; revocationCode?: string }
-  | { name: "error"; message: string; revocationCode?: string; sessionId?: string };
+  | {
+      name: "error";
+      message: string;
+      revocationCode?: string;
+      sessionId?: string;
+      limitedAccount?: boolean;
+    };
 
 function sessionIdFromPhase(phase: Phase): string | undefined {
   if (
     phase.name === "steam-guard" ||
     phase.name === "phone-number" ||
     phase.name === "phone-email" ||
-    phase.name === "phone-sms" ||
     phase.name === "code-prompt" ||
     phase.name === "submitting" ||
     phase.name === "error"
@@ -175,7 +179,6 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
   const [steamGuardCode, setSteamGuardCode] = useState("");
   const [phoneEmailToken, setPhoneEmailToken] = useState("");
   const [phoneEmailInfo, setPhoneEmailInfo] = useState<string | null>(null);
-  const [phoneSmsCode, setPhoneSmsCode] = useState("");
   const [activationCode, setActivationCode] = useState("");
 
   useEffect(() => {
@@ -186,7 +189,6 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
       setSteamGuardCode("");
       setPhoneEmailToken("");
       setPhoneEmailInfo(null);
-      setPhoneSmsCode("");
       setActivationCode("");
     }
   }, [accountId]);
@@ -206,6 +208,7 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
         message: result.error ?? "Не удалось продолжить привязку SDA.",
         revocationCode: result.revocationCode,
         sessionId: result.sessionId,
+        limitedAccount: result.limitedAccount,
       });
       return;
     }
@@ -229,15 +232,10 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
     if (result.nextStep === "phoneEmail" && result.sessionId) {
       setPhoneEmailToken("");
       setPhoneEmailInfo(
-        "Открой письмо Steam и нажми ADD PHONE NUMBER. После этого вернись сюда и нажми кнопку проверки.",
+        result.error ??
+          "Открой письмо Steam и нажми ADD PHONE NUMBER. После этого вернись сюда и нажми кнопку проверки.",
       );
       setPhase({ name: "phone-email", sessionId: result.sessionId });
-      return;
-    }
-
-    if (result.nextStep === "phoneSms" && result.sessionId) {
-      setPhoneSmsCode("");
-      setPhase({ name: "phone-sms", sessionId: result.sessionId });
       return;
     }
 
@@ -310,17 +308,11 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
     const result = await api.sda.checkPhoneEmail(phase.sessionId);
     if (result.ok && result.nextStep === "phoneEmail") {
       setPhoneEmailInfo(
-        "Steam ещё ждёт подтверждение. Нажми ADD PHONE NUMBER в письме или подожди пару секунд и проверь снова.",
+        result.error ??
+          "Steam ещё ждёт подтверждение. Нажми ADD PHONE NUMBER в письме или подожди пару секунд и проверь снова.",
       );
       return;
     }
-    await applyResult(result);
-  };
-
-  const submitPhoneSms = async () => {
-    if (phase.name !== "phone-sms" || !phoneSmsCode.trim()) return;
-    setPhase({ name: "starting" });
-    const result = await api.sda.submitPhoneSms(phase.sessionId, phoneSmsCode.trim());
     await applyResult(result);
   };
 
@@ -335,6 +327,21 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
     await applyResult(result);
   };
 
+  const retryAfterError = () => {
+    if (phase.name !== "error") return;
+    if (phase.sessionId && phase.revocationCode) {
+      setActivationCode("");
+      setPhase({
+        name: "code-prompt",
+        sessionId: phase.sessionId,
+        revocationCode: phase.revocationCode,
+      });
+      return;
+    }
+    if (phase.sessionId) void api.sda.cancelRegistration(phase.sessionId);
+    setPhase({ name: "intro" });
+  };
+
   return (
     <Dialog open={accountId !== null} onOpenChange={(o) => !o && void close()}>
       <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
@@ -342,7 +349,7 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
           <DialogTitle>Привязка SDA (Steam Guard Mobile)</DialogTitle>
           <DialogDescription>
             Менеджер залогинится в Steam Mobile API и проведёт через нужные коды: Steam Guard,
-            телефон и SMS активации.
+            телефон и код активации из SMS или звонка.
           </DialogDescription>
         </DialogHeader>
 
@@ -361,7 +368,7 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
                 </li>
                 <li>
                   Если телефона нет, введи номер здесь. Steam может прислать письмо со ссылкой
-                  подтверждения, затем SMS для SDA.
+                  подтверждения, затем SMS или позвонить с кодом для SDA.
                 </li>
                 <li>
                   После успеха сохрани <strong>revocation code</strong> — он нужен для отвязки SDA.
@@ -498,52 +505,27 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
           </div>
         )}
 
-        {phase.name === "phone-sms" && (
-          <div className="space-y-4 text-sm">
-            <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-emerald-300">
-              Steam просит SMS-код для подтверждения номера телефона.
-            </div>
-            <div className="space-y-1">
-              <Label>SMS-код телефона</Label>
-              <Input
-                value={phoneSmsCode}
-                onChange={(e) => setPhoneSmsCode(e.target.value)}
-                placeholder="12345"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && phoneSmsCode.trim()) void submitPhoneSms();
-                }}
-              />
-            </div>
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => void close()}>
-                Отменить
-              </Button>
-              <Button onClick={() => void submitPhoneSms()} disabled={!phoneSmsCode.trim()}>
-                Подтвердить SMS
-              </Button>
-            </DialogFooter>
-          </div>
-        )}
-
         {phase.name === "code-prompt" && (
           <div className="space-y-4 text-sm">
             <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-emerald-300">
               <p>
-                Steam отправил SMS с кодом активации SDA
+                Steam отправил код активации SDA по SMS или звонком
                 {phase.maskedPhone ? ` на номер ${phase.maskedPhone}` : ""}.
               </p>
-              <p className="mt-1 text-xs">Введи код сюда, чтобы завершить привязку.</p>
+              <p className="mt-1 text-xs">
+                Введи сюда код из SMS или голосового звонка. Не начинай новую попытку, пока ждёшь
+                этот код: старые коды могут перестать подходить.
+              </p>
             </div>
 
             {phase.revocationCode && <RevocationCodeBox code={phase.revocationCode} preview />}
 
             <div className="space-y-1">
-              <Label>SMS-код активации SDA</Label>
+              <Label>Код активации SDA из SMS/звонка</Label>
               <Input
                 value={activationCode}
                 onChange={(e) => setActivationCode(e.target.value)}
-                placeholder="например: ABC12"
+                placeholder="например: 12345 или ABC12"
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && activationCode.trim()) void submitActivation();
@@ -581,7 +563,13 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
 
         {phase.name === "error" && (
           <div className="space-y-3 text-sm">
-            <div className="whitespace-pre-line rounded-md border border-destructive/40 bg-destructive/10 p-3 text-destructive">
+            <div
+              className={`whitespace-pre-line rounded-md border p-3 ${
+                phase.limitedAccount
+                  ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                  : "border-destructive/40 bg-destructive/10 text-destructive"
+              }`}
+            >
               <ShieldAlert className="mb-1 h-4 w-4" />
               {phase.message}
             </div>
@@ -590,14 +578,24 @@ export function SdaRegisterDialog({ accountId, onOpenChange }: Props): React.JSX
               <Button variant="ghost" onClick={() => void close()}>
                 Закрыть
               </Button>
-              <Button
-                onClick={() => {
-                  if (phase.sessionId) void api.sda.cancelRegistration(phase.sessionId);
-                  setPhase({ name: "intro" });
-                }}
-              >
-                Попробовать снова
-              </Button>
+              {phase.limitedAccount ? (
+                <Button
+                  onClick={() => {
+                    void window.open(
+                      "https://store.steampowered.com/account/addfunds",
+                      "_blank",
+                    );
+                  }}
+                >
+                  Открыть Steam Wallet
+                </Button>
+              ) : (
+                <Button
+                  onClick={retryAfterError}
+                >
+                  {phase.sessionId && phase.revocationCode ? "Ввести код заново" : "Попробовать снова"}
+                </Button>
+              )}
             </DialogFooter>
           </div>
         )}

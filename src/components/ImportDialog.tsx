@@ -20,6 +20,14 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
+const importPlaceholder = `jtugse1681:9XM9X2KKK35B:juliusgoodmanhlve@outlook.com:ZkjU6Tsfm0
+LOGIN:ACxJo3J8
+PASS:1nZ2yqCb
+MAIL:sherwoodbudzynski1926@contemporafmli.ru
+PASS:ibqhdsin7309
+hh3533772----obr751050----JulianKozeypsl@outlook.com----iaxlpcxvbf37184
+8ulpFtyrM 2FIuzna2yuQCCEi aboodqruskabkj@hotmail.com EZFahJCMuEg`;
+
 export function ImportDialog({ open, onOpenChange }: Props): React.JSX.Element {
   const load = useAccounts((s) => s.load);
   const [content, setContent] = useState("");
@@ -67,8 +75,9 @@ export function ImportDialog({ open, onOpenChange }: Props): React.JSX.Element {
         <DialogHeader>
           <DialogTitle>Импорт аккаунтов из .txt</DialogTitle>
           <DialogDescription>
-            Поддерживаются форматы: <code>login:password</code>,{" "}
-            <code>login:password:email:emailPass</code>. Также можно вставить вручную.
+            Можно перетащить <code>.txt</code> или вставить аккаунты из FanPay вручную.
+            Поддерживаются разделители <code>:</code>, <code>----</code>, пробелы, запятые и блоки{" "}
+            <code>LOGIN/PASS/MAIL/PASS</code>.
           </DialogDescription>
         </DialogHeader>
         <div
@@ -92,8 +101,12 @@ export function ImportDialog({ open, onOpenChange }: Props): React.JSX.Element {
             onChange={(e) => setContent(e.target.value)}
             rows={8}
             className="font-mono text-xs"
-            placeholder={"login1:password1\nlogin2:password2:email:emailPass"}
+            placeholder={importPlaceholder}
           />
+          <p className="text-xs text-muted-foreground">
+            Для блока <code>LOGIN/PASS/MAIL/PASS</code> первый <code>PASS</code> считается паролем
+            Steam, второй после <code>MAIL</code> - паролем почты.
+          </p>
         </div>
         <div className="space-y-1">
           <Label>Теги для импортируемых (через запятую)</Label>

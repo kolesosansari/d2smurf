@@ -5,31 +5,28 @@
  *   - the user wants the behavior_score that STRATZ exposes.
  *
  * Flow:
- *   1. If we don't yet have a SteamID64 for the account, log into Steam
- *      with stored creds + TOTP from the `.maFile` and capture it.
- *      We also fetch persona name + avatar in the same session.
+ *   1. Log into Steam with stored creds + TOTP from the `.maFile`, launch a
+ *      lightweight Dota 2 GC session and parse account state from protobufs.
  *   2. With the SteamID64 in hand, fall back through OpenDota → STRATZ
- *      → Steam Web API for the rest of the profile data (MMR, rank,
- *      behavior_score).
+ *      → Steam Web API for public profile data (MMR estimate, avatar, rank).
  *
  * What this currently CAN fetch:
  *   - SteamID64, friend code, persona name, avatar (via steam-user logon)
+ *   - Low Priority status / remaining games (Dota GC SO cache)
  *   - MMR estimate, rank_tier, leaderboard_rank (OpenDota)
- *   - Behavior score (STRATZ, if api key set and player opted in)
+ *   - Rank tier / leaderboard rank (Dota GC profile card)
+ *   - Behavior score (Dota GC conduct scorecard, STRATZ fallback)
  *
  * What this currently CANNOT fetch:
- *   - Communication score — Valve doesn't expose it via any public API
- *   - Real-time LP status — only visible inside the Dota 2 client.
- *
- * Those will need either Dota 2 GC protobuf integration (planned) or
- * in-game scraping (out of scope).
+ *   - Exact raw Communication score. Current GC protos expose comms reports
+ *     and chat restrictions, but not a separate 1–12000 communication score.
  */
 import { getMaFile, updateAccount } from "../database/accounts.repo";
 import { getSettings } from "../database/settings.repo";
 import type { AccountRow, AccountUpdate } from "@shared/types";
 import { mmrToRankTier, steamId64ToFriendCode } from "@shared/types";
 import { refreshAccountPublic } from "./checker";
-import { steamLogon } from "./gc-login";
+import { dotaGcCheck } from "./dota-gc";
 import { fetchStratzPlayer } from "./stratz";
 
 export interface DeepCheckResult {
@@ -43,45 +40,66 @@ export async function deepCheckAccount(account: AccountRow): Promise<DeepCheckRe
   const steps: string[] = [];
   const update: AccountUpdate = { lastCheckedAt: Date.now() };
 
-  // Step 1: make sure we have a SteamID64. If not, log into Steam.
+  // Step 1: log into Steam and ask the Dota 2 GC for private account state.
   let steamId64 = account.steamId64;
+  if (!account.password) {
+    return { ok: false, error: "No stored password — cannot log into Steam.", steps };
+  }
+  const ma = getMaFile(account.id);
+  if (!ma?.sharedSecret) {
+    return {
+      ok: false,
+      error: "No .maFile linked — Steam Guard cannot be answered. Link a .maFile first.",
+      steps,
+    };
+  }
+
+  steps.push("Logging into Steam + Dota 2 GC…");
+  const gc = await dotaGcCheck({
+    login: account.login,
+    password: account.password,
+    sharedSecret: ma.sharedSecret,
+    proxy: account.proxy,
+  });
+  steps.push(...gc.steps);
+
+  if (gc.data.steamId64) {
+    steamId64 = gc.data.steamId64;
+    update.steamId64 = gc.data.steamId64;
+    update.friendCode = gc.data.friendCode ?? steamId64ToFriendCode(gc.data.steamId64);
+  }
+  if (gc.data.personaName) update.personaName = gc.data.personaName;
+  if (gc.data.avatarUrl) update.avatarUrl = gc.data.avatarUrl;
+  if (typeof gc.data.rankTier === "number") update.rankTier = gc.data.rankTier;
+  if (typeof gc.data.leaderboardRank === "number") update.leaderboardRank = gc.data.leaderboardRank;
+  if (typeof gc.data.behaviorScore === "number") update.behaviorScore = gc.data.behaviorScore;
+  if (typeof gc.data.communicationScore === "number") {
+    update.communicationScore = gc.data.communicationScore;
+  }
+  if (typeof gc.data.inLowPriority === "boolean") update.inLowPriority = gc.data.inLowPriority;
+  if (gc.data.lowPriorityGamesRemaining !== undefined) {
+    update.lowPriorityGamesRemaining = gc.data.lowPriorityGamesRemaining;
+  }
+
+  if (!gc.ok) {
+    steps.push(`Dota GC failed: ${gc.error ?? "unknown error"}.`);
+    if (!steamId64) return { ok: false, error: gc.error ?? "Dota GC check failed.", steps };
+  }
+
   if (!steamId64) {
-    if (!account.password) {
-      return { ok: false, error: "No stored password — cannot log into Steam.", steps };
-    }
-    const ma = getMaFile(account.id);
-    if (!ma?.sharedSecret) {
-      return {
-        ok: false,
-        error: "No .maFile linked — Steam Guard cannot be answered. Link a .maFile first.",
-        steps,
-      };
-    }
-    steps.push("Logging into Steam to resolve SteamID64…");
-    const logon = await steamLogon({
-      login: account.login,
-      password: account.password,
-      sharedSecret: ma.sharedSecret,
-    });
-    if (!logon.ok || !logon.steamId64) {
-      return { ok: false, error: logon.error ?? "Steam logon failed.", steps };
-    }
-    steamId64 = logon.steamId64;
-    steps.push(`Steam logon ok (SteamID ${steamId64}).`);
-    update.steamId64 = steamId64;
-    if (logon.personaName) update.personaName = logon.personaName;
-    if (logon.avatarUrl) update.avatarUrl = logon.avatarUrl;
-    update.friendCode = steamId64ToFriendCode(steamId64);
+    return { ok: false, error: "SteamID64 was not resolved.", steps };
   }
 
   // Step 2: STRATZ for behavior score + rank confirmation.
   const accountId32 = (BigInt(steamId64) - 76561197960265728n).toString();
   if (getSettings().stratzApiKey) {
     steps.push("Querying STRATZ for behavior score…");
-    const stratz = await fetchStratzPlayer(accountId32);
+    const stratz = await fetchStratzPlayer(accountId32, account.proxy);
     if (stratz) {
-      if (typeof stratz.behaviorScore === "number") update.behaviorScore = stratz.behaviorScore;
-      if (stratz.rankTier) update.rankTier = stratz.rankTier;
+      if (typeof stratz.behaviorScore === "number" && update.behaviorScore === undefined) {
+        update.behaviorScore = stratz.behaviorScore;
+      }
+      if (stratz.rankTier && update.rankTier === undefined) update.rankTier = stratz.rankTier;
       if (!update.personaName && stratz.personaName) update.personaName = stratz.personaName;
       if (!update.avatarUrl && stratz.avatarUrl) update.avatarUrl = stratz.avatarUrl;
       steps.push(

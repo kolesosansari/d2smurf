@@ -14,6 +14,7 @@ export type {
   AccountUpdate,
   AppSettings,
   ImportResult,
+  ProxyTestResult,
   VaultStatus,
   VaultUnlockResult,
 } from "@shared/types";

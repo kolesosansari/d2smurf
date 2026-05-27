@@ -89,6 +89,13 @@ export interface VaultUnlockResult {
   error?: string;
 }
 
+export interface ProxyTestResult {
+  ok: boolean;
+  ip?: string;
+  proxy?: string;
+  error?: string;
+}
+
 export interface ImportTxtParsed {
   login: string;
   password: string;
@@ -124,7 +131,6 @@ export type SdaRegistrationStep =
   | "steamGuard"
   | "phoneNumber"
   | "phoneEmail"
-  | "phoneSms"
   | "activationCode"
   | "complete";
 
@@ -150,6 +156,7 @@ export interface SdaRegistrationResult {
   maskedPhone?: string;
   phoneMissing?: boolean;
   alreadyEnabled?: boolean;
+  limitedAccount?: boolean;
 }
 
 export type IpcChannel =
@@ -172,6 +179,7 @@ export type IpcChannel =
   | "import:mafile-folder"
   | "settings:get"
   | "settings:update"
+  | "proxy:test"
   | "launcher:start-steam"
   | "launcher:start-with-overplus"
   | "sda:add-phone"
@@ -181,7 +189,6 @@ export type IpcChannel =
   | "sda:submit-phone-number"
   | "sda:check-phone-email"
   | "sda:confirm-phone-email"
-  | "sda:submit-phone-sms"
   | "sda:finalize-two-factor"
   | "sda:cancel-registration"
   | "sda:generate-code"

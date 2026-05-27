@@ -13,6 +13,7 @@ import {
   updateAccount,
 } from "../database/accounts.repo";
 import { getSettings, updateSettings } from "../database/settings.repo";
+import { testProxy } from "../net/proxy";
 import {
   getStatus,
   initializeVault,
@@ -29,7 +30,6 @@ import {
   confirmPhoneEmail,
   startSdaRegistration,
   submitPhoneNumber,
-  submitPhoneSmsCode,
   submitSdaActivationCode,
   submitSteamGuardCode,
 } from "../steam/sda-register";
@@ -221,6 +221,9 @@ export function registerIpcHandlers(): void {
     return next;
   });
 
+  // ---- proxy ----
+  ipcMain.handle("proxy:test", async (_e, proxy: string) => testProxy(proxy));
+
   // ---- launcher ----
   ipcMain.handle("launcher:start-steam", async (_e, id: string) => {
     const account = getAccount(id);
@@ -282,9 +285,6 @@ export function registerIpcHandlers(): void {
   });
   ipcMain.handle("sda:confirm-phone-email", async (_e, sessionId: string, stokenOrLink: string) => {
     return confirmPhoneEmail(sessionId, stokenOrLink);
-  });
-  ipcMain.handle("sda:submit-phone-sms", async (_e, sessionId: string, code: string) => {
-    return submitPhoneSmsCode(sessionId, code);
   });
   ipcMain.handle(
     "sda:finalize-two-factor",
